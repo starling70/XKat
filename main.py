@@ -1,5 +1,6 @@
 # main.py
 from pathlib import Path
+import random
 import sys
 
 from database import XKatDatabase
@@ -12,20 +13,40 @@ class XKFormPyQt(QMainWindow):
     def __init__(self, mode=0):
         super().__init__()
 
-        # Змінні стану
+        # Змінні стану та плейлист
         self.current_selected_dir = None
         self.root_path = Path("/home/alls3/X")
+        self.playlist = []
+        self.current_index = 0
 
-        # Ініціалізація бази даних (поки що каркас)
-        self.db = XKatDatabase()
-        self.db.connect()
-
-        # Будуємо інтерфейс з окремого файлу ui_form.py
+        # Будуємо інтерфейс з ui_form.py
         UIForm.setup_ui(self)
+
+        # Ініціалізація бази даних та завантаження в пам'ять
+        self.init_database_and_playlist()
 
         # Ініціалізація дерева та зв'язування подій
         self.populate_tree()
         self.treeFS.itemClicked.connect(self.on_tree_item_clicked)
+
+    def init_database_and_playlist(self):
+        """Підключення до бази, завантаження, перемішування і виведення першого елемента"""
+        db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+        if db.connect():
+            # Завантажуємо всі записи у вигляді об'єктів
+            self.playlist = db.load_all_records()
+            db.close()
+
+            if self.playlist:
+                # Перемішуємо плейлист для випадкового перегляду
+                random.shuffle(self.playlist)
+                self.current_index = 0
+
+                # Беремо перший об'єкт і вписуємо його curpath у tCurPath
+                first_record = self.playlist[self.current_index]
+                self.tCurPath.setText(first_record.curpath)
+            else:
+                self.tCurPath.setText("База даних порожня або таблиця xfiles не знайдена")
 
     def populate_tree(self):
         self.treeFS.clear()
