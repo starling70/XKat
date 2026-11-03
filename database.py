@@ -104,3 +104,18 @@ class XKatDatabase:
             except Exception as e:
                 print(f"Помилка вставки нового запису в базу: {e}")
                 return False
+
+    def update_comm(self, idfile, comm):
+            """Оновлення лише поля comm для конкретного файлу"""
+            if not self.conn:
+                return False
+            try:
+                self.cursor.execute(
+                    "UPDATE xfiles SET comm = ? WHERE idfile = ?",
+                    (comm, idfile)
+                )
+                self.conn.commit()
+                return True
+            except Exception as e:
+                print(f"Помилка оновлення коментаря в базі: {e}")
+                return False

@@ -20,7 +20,7 @@ class XKFormPyQt(QMainWindow):
         self.incoming_path = Path("/home/B400/mule/Incoming/")
         self.playlist = []
         self.current_index = 0
-        self.pending_first_play = False  # Прапорець для відкладеного старту плейлиста
+        self.pending_first_play = False
 
         # Будуємо інтерфейс з ui_form.py
         UIForm.setup_ui(self)
@@ -75,19 +75,15 @@ class XKFormPyQt(QMainWindow):
                 random.shuffle(self.playlist)
                 self.current_index = 0
 
-                # Виводимо дані першого запису на форму (у поля)
                 record = self.playlist[self.current_index]
                 self.update_ui_from_record(record)
 
-                # Перевіряємо, чи є файли у папці Incoming
                 incoming_files = [p for p in self.incoming_path.rglob('*') if p.is_file()] if self.incoming_path.exists() else []
 
                 if incoming_files:
-                    # Якщо папка не порожня — НЕ запускаємо відео автоматично, чекаємо дій
                     self.pending_first_play = True
                     print(f"Знайдено нові файли в Incoming ({len(incoming_files)} шт.). Автозапуск скасовано, очікуємо вибору.")
                 else:
-                    # Якщо папка порожня — запускаємо перший файл одразу, як і раніше
                     self.play_file(record.curpath)
             else:
                 self.tCurPath.setText("База даних не містить активних записів")
@@ -106,6 +102,14 @@ class XKFormPyQt(QMainWindow):
             self.tComm.setPlainText(comm_text)
         else:
             self.tComm.setText(comm_text)
+
+    def get_current_comm_text(self):
+        """Допоміжний метод для отримання тексту з tComm (незалежно від типу віджета)"""
+        if hasattr(self.tComm, "toPlainText"):
+            return self.tComm.toPlainText()
+        elif hasattr(self.tComm, "text"):
+            return self.tComm.text()
+        return ""
 
     def play_file(self, file_path):
         """Асинхронний запуск файлу системним обробником (VLC)"""
@@ -131,19 +135,31 @@ class XKFormPyQt(QMainWindow):
         self.play_file(record.curpath)
 
     def on_next_clicked(self):
-        """Перехід до наступного випадкового запису"""
+        """Перехід до наступного випадкового запису з попередньою перевіркою коментаря"""
         if not self.playlist:
             return
 
+        # 1. ПЕРЕВІРКА ТА ЗБЕРЕЖЕННЯ ЗМІН У КОМЕНТАРІ ПОТОЧНОГО ОБ'ЄКТА
+        current_record = self.playlist[self.current_index]
+        ui_comm = self.get_current_comm_text()
+        db_comm = current_record.comm if current_record.comm else ""
+
+        if ui_comm != db_comm:
+            # Коментар змінився — оновлюємо в пам'яті та в базі
+            current_record.comm = ui_comm
+            db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+            if db.connect():
+                db.update_comm(current_record.idfile, ui_comm)
+                db.close()
+                print(f"Автозбереження коментаря для idfile={current_record.idfile} успішно виконано.")
+
+        # 2. ПЕРЕХІД ДО НАСТУПНОГО ЕЛЕМЕНТА
         if self.pending_first_play:
-            # Якщо автозапуск при старті був заблокований через Incoming,
-            # то перший клік b`Next` відтворює поточний (0-й) елемент без зсуву індексу
             self.pending_first_play = False
             record = self.playlist[self.current_index]
             self.update_ui_from_record(record)
             self.play_file(record.curpath)
         else:
-            # Звичайний перехід до наступного елемента
             self.current_index = (self.current_index + 1) % len(self.playlist)
             record = self.playlist[self.current_index]
             self.update_ui_from_record(record)
@@ -207,12 +223,14 @@ class XKFormPyQt(QMainWindow):
         else:
             self.tCurPath.setText("Плейлист порожній")
             self.tNextPath.clear()
+            if hasattr(self.tComm, "clear"):
+                self.tComm.clear()
 
     def on_stay_clicked(self):
         """Обробник кнопки bStay: створює новий запис у базі зі статусом 6"""
         cur_path = self.tCurPath.text().strip()
         next_path = self.tNextPath.text().strip()
-        comm = self.tComm.toPlainText() if hasattr(self.tComm, "setPlainText") else self.tComm.text()
+        comm = self.get_current_comm_text()
 
         if not cur_path:
             print("Попередження: Поле curpath порожнє, нічого додавати.")
@@ -241,14 +259,17 @@ class XKFormPyQt(QMainWindow):
         root_item.setExpanded(True)
 
     def add_subdirectories(self, current_path: Path, parent_item: QTreeWidgetItem):
-        try:
-            for sub_path in sorted(current_path.iterdir()):
-                if sub_path.is_dir():
-                    sub_item = QTreeWidgetItem(parent_item, [sub_path.name])
-                    sub_item.setData(0, 32, str(sub_path))
-                    self.add_subdirectories(sub_path, sub_item)
-        except PermissionError:
-            pass
+            try:
+                # Сортуємо підпапки без урахування регістру (key=str.lower)
+                sorted_subpaths = sorted(current_path.iterdir(), key=lambda p: p.name.lower())
+                
+                for sub_path in sorted_subpaths:
+                    if sub_path.is_dir():
+                        sub_item = QTreeWidgetItem(parent_item, [sub_path.name])
+                        sub_item.setData(0, 32, str(sub_path))
+                        self.add_subdirectories(sub_path, sub_item)
+            except PermissionError:
+                pass
 
     def on_tree_item_clicked(self, item, column):
         """Обробник кліку по папці в дереві treeFS"""
