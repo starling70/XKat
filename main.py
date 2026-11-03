@@ -1,6 +1,7 @@
 # main.py
 from pathlib import Path
 import random
+import subprocess
 import sys
 
 from database import XKatDatabase
@@ -25,8 +26,9 @@ class XKFormPyQt(QMainWindow):
         # Ініціалізація бази даних та завантаження в пам'ять
         self.init_database_and_playlist()
 
-        # Підключення кнопки bNext до обробника натискання
+        # Підключення кнопок до обробників
         self.bNext.clicked.connect(self.on_next_clicked)
+        self.bPlay.clicked.connect(self.on_play_clicked)
 
         # Ініціалізація дерева та зв'язування подій
         self.populate_tree()
@@ -45,37 +47,60 @@ class XKFormPyQt(QMainWindow):
                 random.shuffle(self.playlist)
                 self.current_index = 0
 
-                # Виводимо дані першого запису на форму
-                self.update_ui_from_record(self.playlist[self.current_index])
+                # Виводимо дані першого запису на форму та запускаємо на перегляд
+                record = self.playlist[self.current_index]
+                self.update_ui_from_record(record)
+                self.play_file(record.curpath)
             else:
                 self.tCurPath.setText("База даних порожня або таблиця xfiles не знайдена")
 
     def update_ui_from_record(self, record):
         """Допоміжний метод для оновлення полів форми з об'єкта FileRecord"""
-        # 1. Поточний шлях
         self.tCurPath.setText(record.curpath if record.curpath else "")
-        
-        # 2. Старий наступний шлях
         self.tNextPath.setText(record.oldnextpath if record.oldnextpath else "")
         
-        # 3. Коментар (підтримує як QTextEdit, так і QLineEdit)
         comm_text = record.comm if record.comm else ""
         if hasattr(self.tComm, "setPlainText"):
             self.tComm.setPlainText(comm_text)
         else:
             self.tComm.setText(comm_text)
 
+    def play_file(self, file_path):
+        """Асинхронний запуск файлу системним обробником (VLC)"""
+        if not file_path:
+            return
+
+        path_obj = Path(file_path)
+        if not path_obj.exists():
+            print(f"Попередження: Файл не знайдено на диску: {file_path}")
+            return
+
+        try:
+            # xdg-open запускає програму за замовчуванням (VLC) у фоновому режимі
+            subprocess.Popen(["xdg-open", str(path_obj)])
+            print(f"Запущено на перегляд: {file_path}")
+        except Exception as e:
+            print(f"Помилка запуску зовнішнього плеєра: {e}")
+
+    def on_play_clicked(self):
+        """Обробник натискання кнопки bPlay (повторний запуск поточного файлу)"""
+        if not self.playlist:
+            return
+        record = self.playlist[self.current_index]
+        self.play_file(record.curpath)
+
     def on_next_clicked(self):
-        """Перехід до наступного випадкового запису при кліку на bNext"""
+        """Перехід до наступного випадкового запису, оновлення полів і запуск"""
         if not self.playlist:
             return
 
         # Збільшуємо індекс із циклічним переходом
         self.current_index = (self.current_index + 1) % len(self.playlist)
 
-        # Беремо об'єкт і оновлюємо поля форми
+        # Беремо об'єкт, оновлюємо поля і запускаємо на перегляд
         record = self.playlist[self.current_index]
         self.update_ui_from_record(record)
+        self.play_file(record.curpath)
         
         print(f"Індекс: {self.current_index}, idfile: {record.idfile}")
 
