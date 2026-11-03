@@ -25,6 +25,9 @@ class XKFormPyQt(QMainWindow):
         # Ініціалізація бази даних та завантаження в пам'ять
         self.init_database_and_playlist()
 
+        # Підключення кнопки bNext до обробника натискання
+        self.bNext.clicked.connect(self.on_next_clicked)
+
         # Ініціалізація дерева та зв'язування подій
         self.populate_tree()
         self.treeFS.itemClicked.connect(self.on_tree_item_clicked)
@@ -33,7 +36,7 @@ class XKFormPyQt(QMainWindow):
         """Підключення до бази, завантаження, перемішування і виведення першого елемента"""
         db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
         if db.connect():
-            # Завантажуємо всі записи у вигляді об'єктів
+            # Завантажуємо всі записи у вигляді об'єктів FileRecord
             self.playlist = db.load_all_records()
             db.close()
 
@@ -47,6 +50,23 @@ class XKFormPyQt(QMainWindow):
                 self.tCurPath.setText(first_record.curpath)
             else:
                 self.tCurPath.setText("База даних порожня або таблиця xfiles не знайдена")
+
+    def on_next_clicked(self):
+        """Перехід до наступного випадкового запису при кліку на bNext"""
+        if not self.playlist:
+            return
+
+        # Збільшуємо індекс із циклічним переходом (якщо дійшли кінця — повертаємось на початок)
+        self.current_index = (self.current_index + 1) % len(self.playlist)
+
+        # Беремо об'єкт з поточного індексу
+        record = self.playlist[self.current_index]
+
+        # Вписуємо його curpath у поле tCurPath
+        self.tCurPath.setText(record.curpath)
+        
+        # Для зручності виводимо дебаг у термінал
+        print(f"Індекс: {self.current_index}, idfile: {record.idfile}")
 
     def populate_tree(self):
         self.treeFS.clear()
