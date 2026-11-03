@@ -89,3 +89,18 @@ class XKatDatabase:
         """Закриття з'єднання з базою"""
         if self.conn:
             self.conn.close()
+
+    def insert_record(self, curpath, oldnextpath, statusfile, comm):
+            """Вставка нового запису в таблицю xfiles (idгенерується автоматично)"""
+            if not self.conn:
+                return False
+            try:
+                self.cursor.execute(
+                    "INSERT INTO xfiles (curpath, oldnextpath, statusfile, comm) VALUES (?, ?, ?, ?)",
+                    (curpath, oldnextpath, statusfile, comm)
+                )
+                self.conn.commit()
+                return True
+            except Exception as e:
+                print(f"Помилка вставки нового запису в базу: {e}")
+                return False

@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 from database import XKatDatabase
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeWidgetItem
+from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem
 from ui_form import UIForm
 
 
@@ -17,13 +17,18 @@ class XKFormPyQt(QMainWindow):
         # Змінні стану та плейлист
         self.current_selected_dir = None
         self.root_path = Path("/home/alls3/X")
+        self.incoming_path = Path("/home/B400/mule/Incoming/")
         self.playlist = []
         self.current_index = 0
+        self.pending_first_play = False  # Прапорець для відкладеного старту плейлиста
 
         # Будуємо інтерфейс з ui_form.py
         UIForm.setup_ui(self)
 
-        # Ініціалізація бази даних та завантаження в пам'ять (фільтрує статус 8)
+        # Скануємо папку Incoming та заповнюємо tTable новими файлами
+        self.populate_incoming_table()
+
+        # Ініціалізація бази даних та завантаження активного плейлиста в пам'ять
         self.init_database_and_playlist()
 
         # Підключення кнопок до обробників
@@ -32,28 +37,58 @@ class XKFormPyQt(QMainWindow):
         self.bThere.clicked.connect(self.on_there_clicked)
         self.bReName.clicked.connect(self.on_rename_clicked)
         self.bRemove.clicked.connect(self.on_remove_clicked)
+        self.bStay.clicked.connect(self.on_stay_clicked)
 
         # Ініціалізація дерева та зв'язування подій
         self.populate_tree()
         self.treeFS.itemClicked.connect(self.on_tree_item_clicked)
+        
+        # Зв'язування кліків по таблиці Incoming
+        self.tTable.itemClicked.connect(self.on_table_item_clicked)
+
+    def populate_incoming_table(self):
+        """Сканує папку Incoming та виводить знайдені файли у tTable"""
+        self.tTable.clearContents()
+        
+        if not self.incoming_path.exists() or not self.incoming_path.is_dir():
+            self.tTable.setRowCount(1)
+            self.tTable.setItem(0, 0, QTableWidgetItem(f"Папка не знайдена: {self.incoming_path}"))
+            return
+
+        files = sorted([p for p in self.incoming_path.rglob('*') if p.is_file()])
+
+        self.tTable.setRowCount(len(files))
+        self.tTable.setColumnCount(1)
+        
+        for row, file_path in enumerate(files):
+            item = QTableWidgetItem(str(file_path))
+            self.tTable.setItem(row, 0, item)
 
     def init_database_and_playlist(self):
-        """Підключення до бази, завантаження активних записів, перемішування і виведення першого елемента"""
+        """Підключення до бази, завантаження активних записів, перемішування"""
         db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
         if db.connect():
-            # Завантажуємо записи (статус 8 автоматично відсіюється в database.py)
             self.playlist = db.load_all_records()
             db.close()
 
             if self.playlist:
-                # Перемішуємо плейлист для випадкового перегляду
                 random.shuffle(self.playlist)
                 self.current_index = 0
 
-                # Виводимо дані першого запису на форму та запускаємо на перегляд
+                # Виводимо дані першого запису на форму (у поля)
                 record = self.playlist[self.current_index]
                 self.update_ui_from_record(record)
-                self.play_file(record.curpath)
+
+                # Перевіряємо, чи є файли у папці Incoming
+                incoming_files = [p for p in self.incoming_path.rglob('*') if p.is_file()] if self.incoming_path.exists() else []
+
+                if incoming_files:
+                    # Якщо папка не порожня — НЕ запускаємо відео автоматично, чекаємо дій
+                    self.pending_first_play = True
+                    print(f"Знайдено нові файли в Incoming ({len(incoming_files)} шт.). Автозапуск скасовано, очікуємо вибору.")
+                else:
+                    # Якщо папка порожня — запускаємо перший файл одразу, як і раніше
+                    self.play_file(record.curpath)
             else:
                 self.tCurPath.setText("База даних не містить активних записів")
 
@@ -89,26 +124,35 @@ class XKFormPyQt(QMainWindow):
             print(f"Помилка запуску зовнішнього плеєра: {e}")
 
     def on_play_clicked(self):
-        """Обробник натискання кнопки bPlay (повторний запуск поточного файлу)"""
+        """Обробник натискання кнопки bPlay"""
         if not self.playlist:
             return
         record = self.playlist[self.current_index]
         self.play_file(record.curpath)
 
     def on_next_clicked(self):
-        """Перехід до наступного випадкового запису, оновлення полів і запуск"""
+        """Перехід до наступного випадкового запису"""
         if not self.playlist:
             return
 
-        self.current_index = (self.current_index + 1) % len(self.playlist)
-        record = self.playlist[self.current_index]
-        self.update_ui_from_record(record)
-        self.play_file(record.curpath)
+        if self.pending_first_play:
+            # Якщо автозапуск при старті був заблокований через Incoming,
+            # то перший клік b`Next` відтворює поточний (0-й) елемент без зсуву індексу
+            self.pending_first_play = False
+            record = self.playlist[self.current_index]
+            self.update_ui_from_record(record)
+            self.play_file(record.curpath)
+        else:
+            # Звичайний перехід до наступного елемента
+            self.current_index = (self.current_index + 1) % len(self.playlist)
+            record = self.playlist[self.current_index]
+            self.update_ui_from_record(record)
+            self.play_file(record.curpath)
         
         print(f"Індекс: {self.current_index}, idfile: {record.idfile}")
 
     def on_there_clicked(self):
-        """Обробник кнопки bThere: оновлює oldnextpath та statusfile=6 у пам'яті та базі"""
+        """Обробник кнопки bThere"""
         if not self.playlist:
             return
 
@@ -120,13 +164,11 @@ class XKFormPyQt(QMainWindow):
 
         db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
         if db.connect():
-            success = db.update_record_target(record.idfile, new_next_path, 6)
+            db.update_record_target(record.idfile, new_next_path, 6)
             db.close()
-            if success:
-                print(f"Збережено (There): idfile={record.idfile} -> статус 6")
 
     def on_rename_clicked(self):
-        """Обробник кнопки bReName: записує шлях з tNextPath у oldnextpath та встановлює статус 6"""
+        """Обробник кнопки bReName"""
         if not self.playlist:
             return
 
@@ -138,45 +180,50 @@ class XKFormPyQt(QMainWindow):
 
         db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
         if db.connect():
-            success = db.update_record_target(record.idfile, new_next_path, 6)
+            db.update_record_target(record.idfile, new_next_path, 6)
             db.close()
-            if success:
-                print(f"Зафіксовано перейменування: idfile={record.idfile} -> статус 6")
 
     def on_remove_clicked(self):
-        """Обробник кнопки bRemove: ставимо статус 8 у базі, видаляємо з пам'яті та йдемо далі"""
+        """Обробник кнопки bRemove (статус 8)"""
         if not self.playlist:
             return
 
         record = self.playlist[self.current_index]
         record.statusfile = 8
 
-        # Оновлюємо статус в базі даних на 8
         db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
         if db.connect():
-            success = db.update_status(record.idfile, 8)
+            db.update_status(record.idfile, 8)
             db.close()
-            if success:
-                print(f"Файл позначено до видалення (статус 8): idfile={record.idfile}, шлях={record.curpath}")
 
-        # Видаляємо поточний елемент зі списку в пам'яті
         self.playlist.pop(self.current_index)
 
-        # Переходимо до наступного або виводимо повідомлення, якщо список скінчився
         if self.playlist:
             if self.current_index >= len(self.playlist):
                 self.current_index = 0
-            
             next_record = self.playlist[self.current_index]
             self.update_ui_from_record(next_record)
             self.play_file(next_record.curpath)
         else:
             self.tCurPath.setText("Плейлист порожній")
             self.tNextPath.clear()
-            if hasattr(self.tComm, "setPlainText"):
-                self.tComm.clear()
-            else:
-                self.tComm.setText("")
+
+    def on_stay_clicked(self):
+        """Обробник кнопки bStay: створює новий запис у базі зі статусом 6"""
+        cur_path = self.tCurPath.text().strip()
+        next_path = self.tNextPath.text().strip()
+        comm = self.tComm.toPlainText() if hasattr(self.tComm, "setPlainText") else self.tComm.text()
+
+        if not cur_path:
+            print("Попередження: Поле curpath порожнє, нічого додавати.")
+            return
+
+        db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+        if db.connect():
+            success = db.insert_record(cur_path, next_path, 6, comm)
+            db.close()
+            if success:
+                print(f"Успішно додано новий файл у базу зі статусом 6: {cur_path}")
 
     def populate_tree(self):
         self.treeFS.clear()
@@ -210,12 +257,19 @@ class XKFormPyQt(QMainWindow):
             self.current_selected_dir = dir_path
             self.treeFS.setHeaderLabel(dir_path)
 
-            if self.playlist and 0 <= self.current_index < len(self.playlist):
-                current_record = self.playlist[self.current_index]
-                if current_record.curpath:
-                    file_name_ext = Path(current_record.curpath).name
-                    new_full_path = str(Path(dir_path) / file_name_ext)
-                    self.tNextPath.setText(new_full_path)
+            current_cur_path = self.tCurPath.text().strip()
+            if current_cur_path:
+                file_name_ext = Path(current_cur_path).name
+                new_full_path = str(Path(dir_path) / file_name_ext)
+                self.tNextPath.setText(new_full_path)
+
+    def on_table_item_clicked(self, item):
+        """Обробник кліку по рядку у таблиці tTable (нові файли з Incoming)"""
+        file_path = item.text()
+        if file_path and Path(file_path).exists():
+            self.tCurPath.setText(file_path)
+            self.tNextPath.setText(file_path)
+            self.play_file(file_path)
 
 
 if __name__ == "__main__":
