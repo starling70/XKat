@@ -45,27 +45,38 @@ class XKFormPyQt(QMainWindow):
                 random.shuffle(self.playlist)
                 self.current_index = 0
 
-                # Беремо перший об'єкт і вписуємо його curpath у tCurPath
-                first_record = self.playlist[self.current_index]
-                self.tCurPath.setText(first_record.curpath)
+                # Виводимо дані першого запису на форму
+                self.update_ui_from_record(self.playlist[self.current_index])
             else:
                 self.tCurPath.setText("База даних порожня або таблиця xfiles не знайдена")
+
+    def update_ui_from_record(self, record):
+        """Допоміжний метод для оновлення полів форми з об'єкта FileRecord"""
+        # 1. Поточний шлях
+        self.tCurPath.setText(record.curpath if record.curpath else "")
+        
+        # 2. Старий наступний шлях
+        self.tNextPath.setText(record.oldnextpath if record.oldnextpath else "")
+        
+        # 3. Коментар (підтримує як QTextEdit, так і QLineEdit)
+        comm_text = record.comm if record.comm else ""
+        if hasattr(self.tComm, "setPlainText"):
+            self.tComm.setPlainText(comm_text)
+        else:
+            self.tComm.setText(comm_text)
 
     def on_next_clicked(self):
         """Перехід до наступного випадкового запису при кліку на bNext"""
         if not self.playlist:
             return
 
-        # Збільшуємо індекс із циклічним переходом (якщо дійшли кінця — повертаємось на початок)
+        # Збільшуємо індекс із циклічним переходом
         self.current_index = (self.current_index + 1) % len(self.playlist)
 
-        # Беремо об'єкт з поточного індексу
+        # Беремо об'єкт і оновлюємо поля форми
         record = self.playlist[self.current_index]
-
-        # Вписуємо його curpath у поле tCurPath
-        self.tCurPath.setText(record.curpath)
+        self.update_ui_from_record(record)
         
-        # Для зручності виводимо дебаг у термінал
         print(f"Індекс: {self.current_index}, idfile: {record.idfile}")
 
     def populate_tree(self):

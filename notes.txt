@@ -1,3 +1,8 @@
 База - /home/os/XKat/BASE/xfiles.db
 Таблица - xfiles
-Поля: idfile, curpath, oldnextpath, statusfile, comm
+Поля: 
+idfile, 
+curpath, tCurPath
+oldnextpath, tNextPath
+statusfile, 
+comm
