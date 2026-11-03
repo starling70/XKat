@@ -4,5 +4,5 @@
 idfile, 
 curpath, tCurPath
 oldnextpath, tNextPath
-statusfile, 
+statusfile, 0-все на месте, 6-переместить/переименовать, 8-удалить
 comm

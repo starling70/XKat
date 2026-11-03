@@ -23,22 +23,25 @@ class XKFormPyQt(QMainWindow):
         # Будуємо інтерфейс з ui_form.py
         UIForm.setup_ui(self)
 
-        # Ініціалізація бази даних та завантаження в пам'ять
+        # Ініціалізація бази даних та завантаження в пам'ять (фільтрує статус 8)
         self.init_database_and_playlist()
 
         # Підключення кнопок до обробників
         self.bNext.clicked.connect(self.on_next_clicked)
         self.bPlay.clicked.connect(self.on_play_clicked)
+        self.bThere.clicked.connect(self.on_there_clicked)
+        self.bReName.clicked.connect(self.on_rename_clicked)
+        self.bRemove.clicked.connect(self.on_remove_clicked)
 
         # Ініціалізація дерева та зв'язування подій
         self.populate_tree()
         self.treeFS.itemClicked.connect(self.on_tree_item_clicked)
 
     def init_database_and_playlist(self):
-        """Підключення до бази, завантаження, перемішування і виведення першого елемента"""
+        """Підключення до бази, завантаження активних записів, перемішування і виведення першого елемента"""
         db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
         if db.connect():
-            # Завантажуємо всі записи у вигляді об'єктів FileRecord
+            # Завантажуємо записи (статус 8 автоматично відсіюється в database.py)
             self.playlist = db.load_all_records()
             db.close()
 
@@ -52,12 +55,16 @@ class XKFormPyQt(QMainWindow):
                 self.update_ui_from_record(record)
                 self.play_file(record.curpath)
             else:
-                self.tCurPath.setText("База даних порожня або таблиця xfiles не знайдена")
+                self.tCurPath.setText("База даних не містить активних записів")
 
     def update_ui_from_record(self, record):
         """Допоміжний метод для оновлення полів форми з об'єкта FileRecord"""
         self.tCurPath.setText(record.curpath if record.curpath else "")
-        self.tNextPath.setText(record.oldnextpath if record.oldnextpath else "")
+        
+        if record.oldnextpath and record.oldnextpath.strip():
+            self.tNextPath.setText(record.oldnextpath)
+        else:
+            self.tNextPath.setText(record.curpath if record.curpath else "")
         
         comm_text = record.comm if record.comm else ""
         if hasattr(self.tComm, "setPlainText"):
@@ -76,7 +83,6 @@ class XKFormPyQt(QMainWindow):
             return
 
         try:
-            # xdg-open запускає програму за замовчуванням (VLC) у фоновому режимі
             subprocess.Popen(["xdg-open", str(path_obj)])
             print(f"Запущено на перегляд: {file_path}")
         except Exception as e:
@@ -94,15 +100,83 @@ class XKFormPyQt(QMainWindow):
         if not self.playlist:
             return
 
-        # Збільшуємо індекс із циклічним переходом
         self.current_index = (self.current_index + 1) % len(self.playlist)
-
-        # Беремо об'єкт, оновлюємо поля і запускаємо на перегляд
         record = self.playlist[self.current_index]
         self.update_ui_from_record(record)
         self.play_file(record.curpath)
         
         print(f"Індекс: {self.current_index}, idfile: {record.idfile}")
+
+    def on_there_clicked(self):
+        """Обробник кнопки bThere: оновлює oldnextpath та statusfile=6 у пам'яті та базі"""
+        if not self.playlist:
+            return
+
+        record = self.playlist[self.current_index]
+        new_next_path = self.tNextPath.text().strip()
+
+        record.oldnextpath = new_next_path
+        record.statusfile = 6
+
+        db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+        if db.connect():
+            success = db.update_record_target(record.idfile, new_next_path, 6)
+            db.close()
+            if success:
+                print(f"Збережено (There): idfile={record.idfile} -> статус 6")
+
+    def on_rename_clicked(self):
+        """Обробник кнопки bReName: записує шлях з tNextPath у oldnextpath та встановлює статус 6"""
+        if not self.playlist:
+            return
+
+        record = self.playlist[self.current_index]
+        new_next_path = self.tNextPath.text().strip()
+
+        record.oldnextpath = new_next_path
+        record.statusfile = 6
+
+        db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+        if db.connect():
+            success = db.update_record_target(record.idfile, new_next_path, 6)
+            db.close()
+            if success:
+                print(f"Зафіксовано перейменування: idfile={record.idfile} -> статус 6")
+
+    def on_remove_clicked(self):
+        """Обробник кнопки bRemove: ставимо статус 8 у базі, видаляємо з пам'яті та йдемо далі"""
+        if not self.playlist:
+            return
+
+        record = self.playlist[self.current_index]
+        record.statusfile = 8
+
+        # Оновлюємо статус в базі даних на 8
+        db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+        if db.connect():
+            success = db.update_status(record.idfile, 8)
+            db.close()
+            if success:
+                print(f"Файл позначено до видалення (статус 8): idfile={record.idfile}, шлях={record.curpath}")
+
+        # Видаляємо поточний елемент зі списку в пам'яті
+        self.playlist.pop(self.current_index)
+
+        # Переходимо до наступного або виводимо повідомлення, якщо список скінчився
+        if self.playlist:
+            if self.current_index >= len(self.playlist):
+                self.current_index = 0
+            
+            next_record = self.playlist[self.current_index]
+            self.update_ui_from_record(next_record)
+            self.play_file(next_record.curpath)
+        else:
+            self.tCurPath.setText("Плейлист порожній")
+            self.tNextPath.clear()
+            if hasattr(self.tComm, "setPlainText"):
+                self.tComm.clear()
+            else:
+                self.tComm.setText("")
 
     def populate_tree(self):
         self.treeFS.clear()
@@ -130,10 +204,18 @@ class XKFormPyQt(QMainWindow):
             pass
 
     def on_tree_item_clicked(self, item, column):
+        """Обробник кліку по папці в дереві treeFS"""
         dir_path = item.data(0, 32)
         if dir_path:
             self.current_selected_dir = dir_path
             self.treeFS.setHeaderLabel(dir_path)
+
+            if self.playlist and 0 <= self.current_index < len(self.playlist):
+                current_record = self.playlist[self.current_index]
+                if current_record.curpath:
+                    file_name_ext = Path(current_record.curpath).name
+                    new_full_path = str(Path(dir_path) / file_name_ext)
+                    self.tNextPath.setText(new_full_path)
 
 
 if __name__ == "__main__":
