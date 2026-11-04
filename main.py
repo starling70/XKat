@@ -1,11 +1,16 @@
-# main.py
 from pathlib import Path
 import random
 import subprocess
 import sys
 
 from database import XKatDatabase
-from PyQt6.QtWidgets import QApplication, QMainWindow, QTreeWidgetItem, QTableWidgetItem
+from PyQt6.QtCore import QEvent  # <--- Додано для відстеження подій фокуса
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QTableWidgetItem,
+    QTreeWidgetItem,
+)
 from ui_form import UIForm
 
 
@@ -25,6 +30,9 @@ class XKFormPyQt(QMainWindow):
         # Будуємо інтерфейс з ui_form.py
         UIForm.setup_ui(self)
 
+        # Встановлюємо фільтр подій для tComm (відстеження втрати фокуса)
+        self.tComm.installEventFilter(self)
+
         # Скануємо папку Incoming та заповнюємо tTable новими файлами
         self.populate_incoming_table()
 
@@ -42,24 +50,58 @@ class XKFormPyQt(QMainWindow):
         # Ініціалізація дерева та зв'язування подій
         self.populate_tree()
         self.treeFS.itemClicked.connect(self.on_tree_item_clicked)
-        
+
         # Зв'язування кліків по таблиці Incoming
         self.tTable.itemClicked.connect(self.on_table_item_clicked)
+
+    def eventFilter(self, obj, event):
+        """Перехоплювач подій для tComm: якщо втрачено фокус — зберігаємо коментар"""
+        if obj == self.tComm and event.type() == QEvent.Type.FocusOut:
+            self.save_current_comment()
+        return super().eventFilter(obj, event)
+
+    def save_current_comment(self):
+        """Зберігає поточний коментар у базу, якщо він змінився"""
+        if not self.playlist:
+            return
+
+        current_record = self.playlist[self.current_index]
+        ui_comm = self.get_current_comm_text()
+        db_comm = current_record.comm if current_record.comm else ""
+
+        if ui_comm != db_comm:
+            current_record.comm = ui_comm
+            db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+            if db.connect():
+                db.update_comm(current_record.idfile, ui_comm)
+                db.close()
+                print(
+                    f"Автозбереження коментаря (втрата фокуса) для"
+                    f" idfile={current_record.idfile} успішно виконано."
+                )
 
     def populate_incoming_table(self):
         """Сканує папку Incoming та виводить знайдені файли у tTable"""
         self.tTable.clearContents()
-        
+
         if not self.incoming_path.exists() or not self.incoming_path.is_dir():
             self.tTable.setRowCount(1)
-            self.tTable.setItem(0, 0, QTableWidgetItem(f"Папка не знайдена: {self.incoming_path}"))
+            self.tTable.setItem(
+                0,
+                0,
+                QTableWidgetItem(
+                    f"Папка не знайдена: {self.incoming_path}"
+                ),
+            )
             return
 
-        files = sorted([p for p in self.incoming_path.rglob('*') if p.is_file()])
+        files = sorted(
+            [p for p in self.incoming_path.rglob("*") if p.is_file()]
+        )
 
         self.tTable.setRowCount(len(files))
         self.tTable.setColumnCount(1)
-        
+
         for row, file_path in enumerate(files):
             item = QTableWidgetItem(str(file_path))
             self.tTable.setItem(row, 0, item)
@@ -78,11 +120,23 @@ class XKFormPyQt(QMainWindow):
                 record = self.playlist[self.current_index]
                 self.update_ui_from_record(record)
 
-                incoming_files = [p for p in self.incoming_path.rglob('*') if p.is_file()] if self.incoming_path.exists() else []
+                incoming_files = (
+                    [
+                        p
+                        for p in self.incoming_path.rglob("*")
+                        if p.is_file()
+                    ]
+                    if self.incoming_path.exists()
+                    else []
+                )
 
                 if incoming_files:
                     self.pending_first_play = True
-                    print(f"Знайдено нові файли в Incoming ({len(incoming_files)} шт.). Автозапуск скасовано, очікуємо вибору.")
+                    print(
+                        f"Знайдено нові файли в Incoming"
+                        f" ({len(incoming_files)} шт.). Автозапуск скасовано,"
+                        f" очікуємо вибору."
+                    )
                 else:
                     self.play_file(record.curpath)
             else:
@@ -91,12 +145,12 @@ class XKFormPyQt(QMainWindow):
     def update_ui_from_record(self, record):
         """Допоміжний метод для оновлення полів форми з об'єкта FileRecord"""
         self.tCurPath.setText(record.curpath if record.curpath else "")
-        
+
         if record.oldnextpath and record.oldnextpath.strip():
             self.tNextPath.setText(record.oldnextpath)
         else:
             self.tNextPath.setText(record.curpath if record.curpath else "")
-        
+
         comm_text = record.comm if record.comm else ""
         if hasattr(self.tComm, "setPlainText"):
             self.tComm.setPlainText(comm_text)
@@ -104,7 +158,7 @@ class XKFormPyQt(QMainWindow):
             self.tComm.setText(comm_text)
 
     def get_current_comm_text(self):
-        """Допоміжний метод для отримання тексту з tComm (незалежно від типу віджета)"""
+        """Допоміжний метод для отримання тексту з tComm"""
         if hasattr(self.tComm, "toPlainText"):
             return self.tComm.toPlainText()
         elif hasattr(self.tComm, "text"):
@@ -135,25 +189,12 @@ class XKFormPyQt(QMainWindow):
         self.play_file(record.curpath)
 
     def on_next_clicked(self):
-        """Перехід до наступного випадкового запису з попередньою перевіркою коментаря"""
+        """Перехід до наступного випадкового запису (без зайвого оновлення комментів)"""
         if not self.playlist:
             return
 
-        # 1. ПЕРЕВІРКА ТА ЗБЕРЕЖЕННЯ ЗМІН У КОМЕНТАРІ ПОТОЧНОГО ОБ'ЄКТА
-        current_record = self.playlist[self.current_index]
-        ui_comm = self.get_current_comm_text()
-        db_comm = current_record.comm if current_record.comm else ""
-
-        if ui_comm != db_comm:
-            # Коментар змінився — оновлюємо в пам'яті та в базі
-            current_record.comm = ui_comm
-            db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
-            if db.connect():
-                db.update_comm(current_record.idfile, ui_comm)
-                db.close()
-                print(f"Автозбереження коментаря для idfile={current_record.idfile} успішно виконано.")
-
-        # 2. ПЕРЕХІД ДО НАСТУПНОГО ЕЛЕМЕНТА
+        # Перед переходом на всяк випадок перевіримо, чи не залишився фокус у tComm,
+        # але фільтр FocusOut вже мав спрацювати. Проте перехід відбувається миттєво.
         if self.pending_first_play:
             self.pending_first_play = False
             record = self.playlist[self.current_index]
@@ -164,7 +205,7 @@ class XKFormPyQt(QMainWindow):
             record = self.playlist[self.current_index]
             self.update_ui_from_record(record)
             self.play_file(record.curpath)
-        
+
         print(f"Індекс: {self.current_index}, idfile: {record.idfile}")
 
     def on_there_clicked(self):
@@ -241,7 +282,10 @@ class XKFormPyQt(QMainWindow):
             success = db.insert_record(cur_path, next_path, 6, comm)
             db.close()
             if success:
-                print(f"Успішно додано новий файл у базу зі статусом 6: {cur_path}")
+                print(
+                    f"Успішно додано новий файл у базу зі статусом 6:"
+                    f" {cur_path}"
+                )
 
     def populate_tree(self):
         self.treeFS.clear()
@@ -259,17 +303,18 @@ class XKFormPyQt(QMainWindow):
         root_item.setExpanded(True)
 
     def add_subdirectories(self, current_path: Path, parent_item: QTreeWidgetItem):
-            try:
-                # Сортуємо підпапки без урахування регістру (key=str.lower)
-                sorted_subpaths = sorted(current_path.iterdir(), key=lambda p: p.name.lower())
-                
-                for sub_path in sorted_subpaths:
-                    if sub_path.is_dir():
-                        sub_item = QTreeWidgetItem(parent_item, [sub_path.name])
-                        sub_item.setData(0, 32, str(sub_path))
-                        self.add_subdirectories(sub_path, sub_item)
-            except PermissionError:
-                pass
+        try:
+            sorted_subpaths = sorted(
+                current_path.iterdir(), key=lambda p: p.name.lower()
+            )
+
+            for sub_path in sorted_subpaths:
+                if sub_path.is_dir():
+                    sub_item = QTreeWidgetItem(parent_item, [sub_path.name])
+                    sub_item.setData(0, 32, str(sub_path))
+                    self.add_subdirectories(sub_path, sub_item)
+        except PermissionError:
+            pass
 
     def on_tree_item_clicked(self, item, column):
         """Обробник кліку по папці в дереві treeFS"""
