@@ -119,3 +119,53 @@ class XKatDatabase:
             except Exception as e:
                 print(f"Помилка оновлення коментаря в базі: {e}")
                 return False
+
+    def search_records(self, search_term):
+            """Регістронезалежний пошук за полями curpath або comm"""
+            if not self.conn:
+                return []
+            try:
+                term = f"%{search_term.lower()}%"
+                self.cursor.execute(
+                    """
+                    SELECT idfile, curpath, oldnextpath, statusfile, comm 
+                    FROM xfiles 
+                    WHERE (LOWER(curpath) LIKE ? OR LOWER(comm) LIKE ?) 
+                      AND (statusfile IS NULL OR statusfile != 8)
+                    """,
+                    (term, term)
+                )
+                rows = self.cursor.fetchall()
+                return [
+                    FileRecord(row[0], row[1], row[2], row[3], row[4])
+                    for row in rows
+                ]
+            except Exception as e:
+                print(f"Помилка виконання пошуку в базі: {e}")
+                return []
+
+    def get_records_by_directory(self, dir_path):
+            """Вибірка всіх активних записів, чий curpath починається з вказаного каталогу"""
+            if not self.conn:
+                return []
+            try:
+                # Додаємо слеш на кінці, щоб не захопити випадково папки з подібними іменами (наприклад, /X/film і /X/films)
+                prefix = str(dir_path).rstrip('/') + '/'
+                self.cursor.execute(
+                    """
+                    SELECT idfile, curpath, oldnextpath, statusfile, comm 
+                    FROM xfiles 
+                    WHERE (curpath LIKE ? OR curpath = ?) 
+                      AND (statusfile IS NULL OR statusfile != 8)
+                    """,
+                    (prefix + '%', str(dir_path))
+                )
+                rows = self.cursor.fetchall()
+                return [
+                    FileRecord(row[0], row[1], row[2], row[3], row[4])
+                    for row in rows
+                ]
+            except Exception as e:
+                print(f"Помилка вибірки за каталогом з бази: {e}")
+                return []
+                

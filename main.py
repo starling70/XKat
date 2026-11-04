@@ -4,9 +4,10 @@ import subprocess
 import sys
 
 from database import XKatDatabase
-from PyQt6.QtCore import QEvent  # <--- Додано для відстеження подій фокуса
+from PyQt6.QtCore import QEvent
 from PyQt6.QtWidgets import (
     QApplication,
+    QHeaderView,
     QMainWindow,
     QTableWidgetItem,
     QTreeWidgetItem,
@@ -39,19 +40,24 @@ class XKFormPyQt(QMainWindow):
         # Ініціалізація бази даних та завантаження активного плейлиста в пам'ять
         self.init_database_and_playlist()
 
-        # Підключення кнопок до обробників
+        # Підключення кнопок та подій до обробників
         self.bNext.clicked.connect(self.on_next_clicked)
         self.bPlay.clicked.connect(self.on_play_clicked)
         self.bThere.clicked.connect(self.on_there_clicked)
+        self.bOut.clicked.connect(self.on_out_clicked)  # <--- Підключення нової кнопки "Отсюда"
         self.bReName.clicked.connect(self.on_rename_clicked)
         self.bRemove.clicked.connect(self.on_remove_clicked)
         self.bStay.clicked.connect(self.on_stay_clicked)
+        
+        # Підключення пошуку
+        self.bSearch.clicked.connect(self.on_search_clicked)
+        self.tSearch.returnPressed.connect(self.on_search_clicked)
 
         # Ініціалізація дерева та зв'язування подій
         self.populate_tree()
         self.treeFS.itemClicked.connect(self.on_tree_item_clicked)
 
-        # Зв'язування кліків по таблиці Incoming
+        # Зв'язування кліків по таблиці (Incoming, результати пошуку або вибірка каталогу)
         self.tTable.itemClicked.connect(self.on_table_item_clicked)
 
     def eventFilter(self, obj, event):
@@ -81,8 +87,12 @@ class XKFormPyQt(QMainWindow):
                 )
 
     def populate_incoming_table(self):
-        """Сканує папку Incoming та виводить знайдені файли у tTable"""
+        """Сканує папку Incoming та виводить знайдені файли у tTable (1 стовпець на всю ширину)"""
         self.tTable.clearContents()
+        self.tTable.setColumnCount(1)
+        self.tTable.setHorizontalHeaderLabels(["Incoming Files"])
+        
+        self.tTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
 
         if not self.incoming_path.exists() or not self.incoming_path.is_dir():
             self.tTable.setRowCount(1)
@@ -100,7 +110,6 @@ class XKFormPyQt(QMainWindow):
         )
 
         self.tTable.setRowCount(len(files))
-        self.tTable.setColumnCount(1)
 
         for row, file_path in enumerate(files):
             item = QTableWidgetItem(str(file_path))
@@ -189,12 +198,10 @@ class XKFormPyQt(QMainWindow):
         self.play_file(record.curpath)
 
     def on_next_clicked(self):
-        """Перехід до наступного випадкового запису (без зайвого оновлення комментів)"""
+        """Перехід до наступного випадкового запису"""
         if not self.playlist:
             return
 
-        # Перед переходом на всяк випадок перевіримо, чи не залишився фокус у tComm,
-        # але фільтр FocusOut вже мав спрацювати. Проте перехід відбувається миттєво.
         if self.pending_first_play:
             self.pending_first_play = False
             record = self.playlist[self.current_index]
@@ -223,6 +230,52 @@ class XKFormPyQt(QMainWindow):
         if db.connect():
             db.update_record_target(record.idfile, new_next_path, 6)
             db.close()
+
+    def on_out_clicked(self):
+        """Обробник кнопки bOut: вибірка файлів з обраного в дереві каталогу"""
+        if not self.current_selected_dir:
+            print("Попередження: Каталог у дереві не обрано.")
+            self.tTable.clearContents()
+            self.tTable.setColumnCount(1)
+            self.tTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            self.tTable.setRowCount(1)
+            self.tTable.setItem(0, 0, QTableWidgetItem("Спочатку оберіть каталог у дереві праворуч!"))
+            return
+
+        db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+        records = []
+        if db.connect():
+            records = db.get_records_by_directory(self.current_selected_dir)
+            db.close()
+
+        # Налаштовуємо таблицю на 2 рівноправні стовпці (Шлях та Коментар)
+        self.tTable.clearContents()
+        self.tTable.setColumnCount(2)
+        self.tTable.setHorizontalHeaderLabels(["Шлях", "Коментар"])
+        
+        header = self.tTable.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+        self.tTable.setRowCount(len(records))
+
+        if not records:
+            self.tTable.setRowCount(1)
+            self.tTable.setColumnCount(1)
+            self.tTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            self.tTable.setItem(0, 0, QTableWidgetItem(f"У каталозі '{self.current_selected_dir}' файлів не знайдено"))
+            return
+
+        for row, record in enumerate(records):
+            path_item = QTableWidgetItem(str(record.curpath))
+            path_item.setData(32, record)  # Зберігаємо об'єкт FileRecord
+            self.tTable.setItem(row, 0, path_item)
+
+            comm_text = str(record.comm) if record.comm else ""
+            comm_item = QTableWidgetItem(comm_text)
+            self.tTable.setItem(row, 1, comm_item)
+
+        print(f"Вибірку за каталогом '{self.current_selected_dir}' завершено. Знайдено: {len(records)}")
 
     def on_rename_clicked(self):
         """Обробник кнопки bReName"""
@@ -287,6 +340,47 @@ class XKFormPyQt(QMainWindow):
                     f" {cur_path}"
                 )
 
+    def on_search_clicked(self):
+        """Виконання пошуку за текстом у tSearch (2 стовпці рівної ширини)"""
+        search_query = self.tSearch.text().strip()
+        if not search_query:
+            self.populate_incoming_table()
+            return
+
+        db = XKatDatabase("/home/os/XKat/BASE/xfiles.db")
+        search_results = []
+        if db.connect():
+            search_results = db.search_records(search_query)
+            db.close()
+
+        self.tTable.clearContents()
+        self.tTable.setColumnCount(2)
+        self.tTable.setHorizontalHeaderLabels(["Шлях", "Коментар"])
+        
+        header = self.tTable.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+        self.tTable.setRowCount(len(search_results))
+
+        if not search_results:
+            self.tTable.setRowCount(1)
+            self.tTable.setColumnCount(1)
+            self.tTable.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            self.tTable.setItem(0, 0, QTableWidgetItem("Нічого не знайдено"))
+            return
+
+        for row, record in enumerate(search_results):
+            path_item = QTableWidgetItem(str(record.curpath))
+            path_item.setData(32, record)
+            self.tTable.setItem(row, 0, path_item)
+
+            comm_text = str(record.comm) if record.comm else ""
+            comm_item = QTableWidgetItem(comm_text)
+            self.tTable.setItem(row, 1, comm_item)
+
+        print(f"Пошук за запитом '{search_query}' завершено. Знайдено: {len(search_results)}")
+
     def populate_tree(self):
         self.treeFS.clear()
 
@@ -330,12 +424,30 @@ class XKFormPyQt(QMainWindow):
                 self.tNextPath.setText(new_full_path)
 
     def on_table_item_clicked(self, item):
-        """Обробник кліку по рядку у таблиці tTable (нові файли з Incoming)"""
-        file_path = item.text()
-        if file_path and Path(file_path).exists():
-            self.tCurPath.setText(file_path)
-            self.tNextPath.setText(file_path)
-            self.play_file(file_path)
+        """Універсальний обробник кліку по таблиці (Incoming, результати пошуку або вибірка каталогу)"""
+        record = item.data(32)
+        
+        if record and hasattr(record, "idfile"):
+            # Клік по результатах пошуку або вибірці з каталогу
+            found_index = -1
+            for idx, r in enumerate(self.playlist):
+                if r.idfile == record.idfile:
+                    found_index = idx
+                    break
+            
+            if found_index != -1:
+                self.current_index = found_index
+            
+            self.update_ui_from_record(record)
+            self.play_file(record.curpath)
+            print(f"Вибрано файл: idfile={record.idfile}")
+        else:
+            # Клік по папці Incoming (якщо рядок без об'єкта)
+            file_path = item.text()
+            if file_path and Path(file_path).exists():
+                self.tCurPath.setText(file_path)
+                self.tNextPath.setText(file_path)
+                self.play_file(file_path)
 
 
 if __name__ == "__main__":
