@@ -1,4 +1,5 @@
 # ui_form.py
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -32,6 +33,8 @@ class UIForm:
         window.tCurPath.setReadOnly(True)
         window.lDestPath = QLabel("Dest Path Label")
         window.tNextPath = QLineEdit()
+        window.tNextPath.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        
         window.tComm = QTextEdit()
         window.tComm.setMaximumHeight(80)
 
