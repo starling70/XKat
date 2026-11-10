@@ -1,8 +1,21 @@
 База - /home/os/XKat/BASE/xfiles.db
 Таблица - xfiles
-Поля: 
-idfile, 
+Поля:
+idfile,
 curpath, tCurPath
 oldnextpath, tNextPath
 statusfile, 0-все на месте, 6-переместить/переименовать, 8-удалить
 comm    tComm
+
+  314  git add .
+  328  git commit -am "2611040850"
+  334  git branch -M main
+  335  git remote add origin https://github.com/starling70/XKat.git
+  336  git push -u origin main
+  340  ssh -T git@github.com
+  341  ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+  342  ssh -T git@github.com
+  343  git remote add origin https://github.com/starling70/XKat.git
+  346  git remote set-url origin git@github.com:starling70/XKat.git
+  347  git remote -v
+  348  git push -u origin main
