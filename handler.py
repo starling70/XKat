@@ -32,39 +32,59 @@ def process_files():
         idfile, curpath_str, oldnextpath_str, statusfile = row
         cur_path = Path(curpath_str) if curpath_str else None
 
-        # -------------------------------------------------------------
+# -------------------------------------------------------------
         # ОБРОБКА СТАТУСУ 8: Видалення файлу та запису з бази
         # -------------------------------------------------------------
         if statusfile == 8:
             print(f"[ВИДАЛЕННЯ] id={idfile}")
             print(f"  Файл: {cur_path}")
-            
+
+            file_deleted = False
+            file_missing = False
+
             try:
                 if cur_path and cur_path.exists():
-                    cur_path.unlink()
-                    print("  -> Файл успішно видалено з диска.")
+                    if cur_path.is_file() or cur_path.is_symlink():
+                        cur_path.unlink()
+                        file_deleted = True
+                        print("  -> Файл успішно видалено з диска.")
+                    else:
+                        print("  -> Увага: Об'єкт на диску не є файлом (пропускаємо unlink).")
                 else:
-                    print("  -> Увага: Файл на диску не знайдено (пропускаємо видалення файлу).")
-
-                # Видаляємо рядок із бази
-                cursor.execute("DELETE FROM xfiles WHERE idfile = ?", (idfile,))
-                conn.commit()
-                print("  -> Запис видалено з бази даних.\n")
+                    file_missing = True
+                    print("  -> Увага: Файл на диску не знайдено, видаляємо лише запис із БД.")
             except Exception as e:
-                print(f"  -> ПОМИЛКА при видаленні: {e}\n")
+                print(f"  -> ПОМИЛКА при роботі з файлом на диску: {e}")
 
-        # -------------------------------------------------------------
+            # Видаляємо запис із БД, якщо файл видалено, його не існує або виникла помилка доступу до файлу
+            if file_deleted or file_missing or cur_path:
+                try:
+                    cursor.execute("DELETE FROM xfiles WHERE idfile = ?", (idfile,))
+                    conn.commit()
+                    print("  -> Запис видалено з бази даних.\n")
+                except Exception as e:
+                    conn.rollback()
+                    print(f"  -> ПОМИЛКА при видаленні запису з БД: {e}\n")
+                    
+# -------------------------------------------------------------
         # ОБРОБКА СТАТУСУ 6: Переміщення / перейменування та скидання статусу в 0
         # -------------------------------------------------------------
         elif statusfile == 6:
             next_path = Path(oldnextpath_str) if oldnextpath_str else None
-            
+
             print(f"[ПЕРЕМІЩЕННЯ] id={idfile}")
             print(f"  З:   {cur_path}")
             print(f"  До:  {next_path}")
 
             if not cur_path or not cur_path.exists():
-                print("  -> ПОМИЛКА: Вихідний файл не існує на диску! Пропускаємо.\n")
+                print("  -> Увага: Вихідний файл не знайдено на диску. Видаляємо запис із БД...")
+                try:
+                    cursor.execute("DELETE FROM xfiles WHERE idfile = ?", (idfile,))
+                    conn.commit()
+                    print("  -> Запис видалено з бази даних.\n")
+                except Exception as e:
+                    conn.rollback()
+                    print(f"  -> ПОМИЛКА при видаленні запису з БД: {e}\n")
                 continue
 
             if not next_path:
@@ -78,15 +98,19 @@ def process_files():
                 # Переміщуємо / перейменовуємо файл на дискі
                 shutil.move(str(cur_path), str(next_path))
                 print("  -> Файл успішно переміщено/перейменовано на дискі.")
+            except Exception as e:
+                print(f"  -> ПОМИЛКА при переміщенні файлу: {e}\n")
+                continue
 
-                # Оновлюємо базу: 
+            try:
+                # Оновлюємо базу:
                 # 1. curpath стає новим шляхом (next_path)
                 # 2. oldnextpath очищається (NULL)
                 # 3. statusfile стає 0
                 cursor.execute(
                     """
-                    UPDATE xfiles 
-                    SET curpath = ?, oldnextpath = NULL, statusfile = 0 
+                    UPDATE xfiles
+                    SET curpath = ?, oldnextpath = NULL, statusfile = 0
                     WHERE idfile = ?
                 """,
                     (str(next_path), idfile),
@@ -94,8 +118,9 @@ def process_files():
                 conn.commit()
                 print("  -> Базу оновлено: статус встановлено в 0, шлях оновлено.\n")
             except Exception as e:
-                print(f"  -> ПОМИЛКА при переміщенні: {e}\n")
-
+                conn.rollback()
+                print(f"  -> ПОМИЛКА при оновленні бази даних: {e}\n")
+                
     conn.close()
     print("Обробку всіх завдань завершено.")
 
