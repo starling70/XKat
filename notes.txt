@@ -7,6 +7,18 @@ oldnextpath, tNextPath
 statusfile, 0-все на месте, 6-переместить/переименовать, 8-удалить
 comm    tComm
 
+Если в гит надо добавить новый файл/ы
+git add . 
+
+Локальный гит
+git commit -am "2611040850"
+
+Гитхаб в первый раз
+git push -u origin main
+
+Гитхаб настроенный 
+git push .
+
   314  git add .
   328  git commit -am "2611040850"
   334  git branch -M main
