@@ -1,11 +1,13 @@
-# ui_form.py
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTabWidget,
     QTextEdit,
@@ -21,83 +23,89 @@ class UIForm:
         window.setWindowTitle("Xkat (PyQt6 Modular)")
         window.resize(1100, 700)
 
-        # Головний віджет та компонування
-        central_widget = QWidget()
+        central_widget = QWidget(window)
         window.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
 
-        # --- ЛІВА КОЛОНКА (Поля введення + Вкладки + Таблиця) ---
+        main_layout = QHBoxLayout(central_widget)
+        main_layout.setContentsMargins(8, 8, 8, 8)
+        main_layout.setSpacing(8)
+
+        # --- Ліва колонка: шляхи, коментар, вкладки дій, таблиця ---
         left_layout = QVBoxLayout()
+        left_layout.setSpacing(6)
 
         window.tCurPath = QLineEdit()
         window.tCurPath.setReadOnly(True)
+
         window.lDestPath = QLabel("Dest Path Label")
+
         window.tNextPath = QLineEdit()
         window.tNextPath.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
+
         window.tComm = QTextEdit()
         window.tComm.setMaximumHeight(80)
 
-        left_layout.addWidget(window.tCurPath)
-        left_layout.addWidget(window.lDestPath)
-        left_layout.addWidget(window.tNextPath)
-        left_layout.addWidget(window.tComm)
+        for widget in (window.tCurPath, window.lDestPath, window.tNextPath, window.tComm):
+            left_layout.addWidget(widget)
 
-        # Панель вкладок дій (tabPanel)
         window.tabPanel = QTabWidget()
 
-        # Вкладка "Просмотр"
-        pPlay = QWidget()
-        pPlay_layout = QHBoxLayout(pPlay)
-        window.bPlay = QPushButton("Play")
-        window.bNext = QPushButton("Next")
-        window.bStay = QPushButton("St")
-        window.bReName = QPushButton("ReName")
-        window.bConvert = QPushButton("Convert")
-        window.bToEdit = QPushButton("ToEdit")
-        window.bRemove = QPushButton("Remove")
-        for btn in [
-            window.bPlay,
-            window.bNext,
-            window.bStay,
-            window.bReName,
-            window.bConvert,
-            window.bToEdit,
-            window.bRemove,
-        ]:
-            pPlay_layout.addWidget(btn)
-        window.tabPanel.addTab(pPlay, "Просмотр")
+        play_tab = QWidget()
+        play_layout = QHBoxLayout(play_tab)
+        play_layout.setContentsMargins(6, 6, 6, 6)
+        play_layout.setSpacing(4)
 
-        window.tabPanel.addTab(QWidget(), "Удаление")
-        window.tabPanel.addTab(QWidget(), "Пережато")
-        window.tabPanel.addTab(QWidget(), "Редактирование")
+        play_buttons = (
+            ("bPlay", "Play"),
+            ("bNext", "Next"),
+            ("bStay", "St"),
+            ("bReName", "ReName"),
+            ("bConvert", "Convert"),
+            ("bToEdit", "ToEdit"),
+            ("bRemove", "Remove"),
+        )
+        for attr_name, text in play_buttons:
+            btn = QPushButton(text)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            setattr(window, attr_name, btn)
+            play_layout.addWidget(btn)
+
+        window.tabPanel.addTab(play_tab, "Просмотр")
+        for tab_title in ("Удаление", "Пережато", "Редактирование"):
+            window.tabPanel.addTab(QWidget(), tab_title)
 
         left_layout.addWidget(window.tabPanel)
 
-        # Таблиця (tTable)
         window.tTable = QTableWidget(4, 4)
+        window.tTable.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        window.tTable.setAlternatingRowColors(True)
+        window.tTable.horizontalHeader().setStretchLastSection(True)
+        window.tTable.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         left_layout.addWidget(window.tTable)
 
         main_layout.addLayout(left_layout, stretch=3)
 
-        # --- ЦЕНТРАЛЬНА ПАНЕЛЬ КНОПОК ---
+        # --- Центральна панель керування ---
         center_layout = QVBoxLayout()
+        center_layout.setSpacing(6)
+
         window.bThere = QPushButton("Сюда")
         window.bOut = QPushButton("Отсюда")
         window.tSearch = QLineEdit()
+        window.tSearch.setPlaceholderText("Поиск...")
         window.bSearch = QPushButton("Search")
         window.cbStay = QCheckBox("Stay")
 
-        center_layout.addWidget(window.bThere)
-        center_layout.addWidget(window.bOut)
-        center_layout.addWidget(window.tSearch)
-        center_layout.addWidget(window.bSearch)
-        center_layout.addWidget(window.cbStay)
-        center_layout.addStretch()
+        for widget in (window.bThere, window.bOut, window.tSearch, window.bSearch, window.cbStay):
+            widget.setMinimumWidth(110)
+            center_layout.addWidget(widget)
 
+        center_layout.addStretch()
         main_layout.addLayout(center_layout, stretch=1)
 
-        # --- ПРАВА КОЛОНКА (Дерево файлів treeFS) ---
+        # --- Права колонка: дерево файлової системи ---
         window.treeFS = QTreeWidget()
         window.treeFS.setHeaderLabel("X")
+        window.treeFS.setAlternatingRowColors(True)
         main_layout.addWidget(window.treeFS, stretch=2)
+        

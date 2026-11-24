@@ -17,7 +17,7 @@ git commit -am "2611040850"
 git push -u origin main
 
 Гитхаб настроенный 
-git push .
+git push
 
   314  git add .
   328  git commit -am "2611040850"
